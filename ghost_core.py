@@ -20,12 +20,13 @@ import os
 import random
 from typing import List, Dict
 
-from transformers import (
+ffrom transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     TextIteratorStreamer,
     logging as hf_logging,
 )
+
 import threading
 
 hf_logging.set_verbosity_error()
@@ -158,7 +159,6 @@ def build_prompt(memory: Dict, user_input: str) -> str:
 # ---------------------------------------------------------------------------
 # LLM handling
 # ---------------------------------------------------------------------------
-
 def load_llm(model_name: str = DEFAULT_MODEL):
     """Load the model and tokenizer for generation."""
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -245,6 +245,7 @@ def stream_response(model, tokenizer, prompt: str) -> str:
 
 
 def main() -> None:
+    generator = load_llm()
     model, tokenizer = load_llm()
     memory = load_memory()
     save_memory(memory)
@@ -255,6 +256,12 @@ def main() -> None:
             append_message("user", user_input)
             memory = load_memory()
             update_arousal(memory, user_input)
+            prompt = build_prompt(memory, user_input)
+            response = generator(prompt)[0]["generated_text"][len(prompt) :].strip()
+            print(f"Ghost: {response}\n")
+            append_message("ghost", response)
+            memory = load_memory()
+            memory["last_output"] = response
             save_memory(memory)
 
             total = 0

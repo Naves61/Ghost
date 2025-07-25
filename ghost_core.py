@@ -20,7 +20,15 @@ import os
 import random
 from typing import List, Dict
 
-from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    TextIteratorStreamer,
+    logging as hf_logging,
+)
+import threading
+
+hf_logging.set_verbosity_error()
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -32,6 +40,9 @@ LOG_PATH = os.path.join(BASE_DIR, "ghost_log.txt")
 
 # default model can be overridden with the GHOST_MODEL environment variable
 DEFAULT_MODEL = os.environ.get("GHOST_MODEL", "distilgpt2")
+
+# maximum tokens the ghost will generate on its own before yielding control
+MAX_AUTO_TOKENS = 400
 
 
 # ---------------------------------------------------------------------------
@@ -149,24 +160,92 @@ def build_prompt(memory: Dict, user_input: str) -> str:
 # ---------------------------------------------------------------------------
 
 def load_llm(model_name: str = DEFAULT_MODEL):
+    """Load the model and tokenizer for generation."""
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(model_name)
-    return pipeline(
-        "text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        max_new_tokens=200,
-        do_sample=True,
-        temperature=0.7,
-    )
+    return model, tokenizer
+
+
+def trim_reply(text: str) -> str:
+    """Trim the model output to just the ghost's reply."""
+    text = text.strip()
+    lowered = text.lower()
+    for role in ("ghost:", "user:"):
+        if lowered.startswith(role):
+            text = text[len(role) :].lstrip()
+            lowered = text.lower()
+            break
+
+    indices = [lowered.find("user:"), lowered.find("ghost:"), text.find("\n")]
+    indices = [i for i in indices if i != -1]
+    if indices:
+        text = text[: min(indices)]
+    return text.strip()
 
 
 # ---------------------------------------------------------------------------
 # REPL
 # ---------------------------------------------------------------------------
 
+def stream_response(model, tokenizer, prompt: str) -> str:
+    inputs = tokenizer(prompt, return_tensors="pt")
+    streamer = TextIteratorStreamer(
+        tokenizer, skip_prompt=True, skip_special_tokens=True
+    )
+    thread = threading.Thread(
+        target=model.generate,
+        kwargs=dict(
+            input_ids=inputs["input_ids"],
+            attention_mask=inputs.get("attention_mask"),
+            max_new_tokens=200,
+            do_sample=True,
+            temperature=0.7,
+            pad_token_id=tokenizer.eos_token_id,
+            streamer=streamer,
+        ),
+    )
+    thread.start()
+
+    raw = ""
+    pending = ""
+    stop = False
+    markers = ["user:", "ghost:"]
+
+    for token in streamer:
+        pending += token
+        raw += token
+
+        if "\n" in pending:
+            idx = pending.find("\n")
+            if idx > 0:
+                print(pending[:idx], end="", flush=True)
+                raw = raw[: len(raw) - len(pending) + idx]
+            stop = True
+            break
+
+        lower_pending = pending.lower()
+        if any(lower_pending == m for m in markers):
+            raw = raw[: len(raw) - len(pending)]
+            stop = True
+            break
+
+        if any(m.startswith(lower_pending) for m in markers):
+            continue
+
+        print(pending, end="", flush=True)
+        pending = ""
+
+    if not stop and pending:
+        print(pending, end="", flush=True)
+        pending = ""
+
+    thread.join()
+    print()
+    return trim_reply(raw)
+
+
 def main() -> None:
-    generator = load_llm()
+    model, tokenizer = load_llm()
     memory = load_memory()
     save_memory(memory)
     print("Ghost REPL. Press Ctrl+C to exit.")
@@ -176,13 +255,21 @@ def main() -> None:
             append_message("user", user_input)
             memory = load_memory()
             update_arousal(memory, user_input)
-            prompt = build_prompt(memory, user_input)
-            response = generator(prompt)[0]["generated_text"][len(prompt) :].strip()
-            print(f"Ghost: {response}\n")
-            append_message("ghost", response)
-            memory = load_memory()
-            memory["last_output"] = response
             save_memory(memory)
+
+            total = 0
+            while total < MAX_AUTO_TOKENS:
+                memory = load_memory()
+                prompt = build_prompt(memory, "")
+                print("Ghost: ", end="", flush=True)
+                response = stream_response(model, tokenizer, prompt)
+                append_message("ghost", response)
+                memory = load_memory()
+                memory["last_output"] = response
+                save_memory(memory)
+                total += len(response.split())
+                if response.endswith("?"):
+                    break
     except KeyboardInterrupt:
         print("\nExiting.")
 

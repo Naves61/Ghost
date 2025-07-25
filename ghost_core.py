@@ -20,7 +20,12 @@ import os
 import random
 from typing import List, Dict
 
-from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    TextIteratorStreamer,
+)
+import threading
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -149,16 +154,19 @@ def build_prompt(memory: Dict, user_input: str) -> str:
 # ---------------------------------------------------------------------------
 
 def load_llm(model_name: str = DEFAULT_MODEL):
+    """Load the model and tokenizer for generation."""
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(model_name)
-    return pipeline(
-        "text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        max_new_tokens=200,
-        do_sample=True,
-        temperature=0.7,
-    )
+    return model, tokenizer
+
+
+def trim_reply(text: str) -> str:
+    """Return the first segment of text before any role markers or newline."""
+    markers = ["\n", "User:", "Ghost:", "user:", "ghost:"]
+    idxs = [text.find(m) for m in markers if m in text]
+    if idxs:
+        text = text[: min(i for i in idxs if i >= 0)]
+    return text.strip()
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +174,7 @@ def load_llm(model_name: str = DEFAULT_MODEL):
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    generator = load_llm()
+    model, tokenizer = load_llm()
     memory = load_memory()
     save_memory(memory)
     print("Ghost REPL. Press Ctrl+C to exit.")
@@ -177,8 +185,30 @@ def main() -> None:
             memory = load_memory()
             update_arousal(memory, user_input)
             prompt = build_prompt(memory, user_input)
-            response = generator(prompt)[0]["generated_text"][len(prompt) :].strip()
-            print(f"Ghost: {response}\n")
+            inputs = tokenizer(prompt, return_tensors="pt")
+            streamer = TextIteratorStreamer(
+                tokenizer, skip_prompt=True, skip_special_tokens=True
+            )
+            thread = threading.Thread(
+                target=model.generate,
+                kwargs=dict(
+                    input_ids=inputs["input_ids"],
+                    attention_mask=inputs.get("attention_mask"),
+                    max_new_tokens=200,
+                    do_sample=True,
+                    temperature=0.7,
+                    streamer=streamer,
+                ),
+            )
+            thread.start()
+            print("Ghost: ", end="", flush=True)
+            raw_output = ""
+            for token in streamer:
+                print(token, end="", flush=True)
+                raw_output += token
+            thread.join()
+            print("\n")
+            response = trim_reply(raw_output)
             append_message("ghost", response)
             memory = load_memory()
             memory["last_output"] = response

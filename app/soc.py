@@ -132,6 +132,8 @@ class SoCEngine:
                     Scraper().execute(ScrapePlan(question=q, seeds=seeds, max_pages=_settings.SCRAPER_MAX_PAGES,
                                                  allow_domains=_settings.allowlist()))
 
+        return th, stored, interrupts
+
 
 async def run_soc_loop(engine: SoCEngine, get_stimuli_cb, stop_evt: asyncio.Event) -> None:
     cadence = settings.SOC_CADENCE_SECONDS

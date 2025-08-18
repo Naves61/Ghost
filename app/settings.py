@@ -41,9 +41,11 @@ class Settings(BaseSettings):
 
     # Scraper safety
     ALLOWLIST_DOMAINS: str = "example.com,localhost"
+    SCRAPER_SAME_DOMAIN_ONLY: bool = True  # follow links only on the same domain by default
     SCRAPER_MAX_PAGES: int = 5
     SCRAPER_MAX_RUNTIME_SEC: int = 30
     SCRAPER_RATE_LIMIT_PER_DOMAIN: float = 1.0  # seconds between hits
+
 
     # Observability
     METRICS_PORT: int = 8000
@@ -54,7 +56,10 @@ class Settings(BaseSettings):
     PROVIDER_CLOCK: str = "system"
 
     def allowlist(self) -> List[str]:
-        return [d.strip() for d in self.ALLOWLIST_DOMAINS.split(",") if d.strip()]
+        s = self.ALLOWLIST_DOMAINS.strip()
+        if s == "*":
+            return ["*"]
+        return [d.strip() for d in s.split(",") if d.strip()]
 
 
 settings = Settings()

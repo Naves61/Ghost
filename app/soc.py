@@ -120,7 +120,17 @@ class SoCEngine:
             iq = self.interrupts.create(question=q, rationale="Missing external info", required_fields=[])
             interrupts.append(iq)
 
-        return th, stored, interrupts
+            # Auto-escalate to scraper if user unavailable AND the question contains URLs on the allowlist.
+            if not self.interrupts.user_available:
+                import re
+                from .scraper import ScrapePlan, Scraper
+                from .settings import settings as _settings
+                urls = re.findall(r"https?://[^\s)]+", q)
+                seeds = [u for u in urls if any(
+                    u.startswith(f"https://{d}") or u.startswith(f"http://{d}") for d in _settings.allowlist())]
+                if seeds:
+                    Scraper().execute(ScrapePlan(question=q, seeds=seeds, max_pages=_settings.SCRAPER_MAX_PAGES,
+                                                 allow_domains=_settings.allowlist()))
 
 
 async def run_soc_loop(engine: SoCEngine, get_stimuli_cb, stop_evt: asyncio.Event) -> None:

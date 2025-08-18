@@ -86,7 +86,7 @@ class Scraper:
             upsert_memory(mem)
             saved_ids.append(mem.id)
 
-            # discover links (same domain only)
+            # discover links (same domain only unless disabled)
             for a in soup.find_all("a", href=True):
                 href = a["href"].strip()
                 if href.startswith("#"):
@@ -97,7 +97,11 @@ class Scraper:
                     base = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
                     href = base + href
                 n = _normalize_url(href)
-                if robots.allowed(n) and urlparse(n).netloc == urlparse(url).netloc:
+
+                if not robots.allowed(n):
+                    continue
+                if settings.SCRAPER_SAME_DOMAIN_ONLY and urlparse(n).netloc != urlparse(url).netloc:
+                    continue
                     to_visit.append(n)
 
         return saved_ids

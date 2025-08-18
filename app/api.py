@@ -26,7 +26,6 @@ from prometheus_client import CollectorRegistry, Counter, generate_latest, CONTE
 
 
 def orjson_response(data: Any) -> ORJSONResponse:
-    # Pass Python objects; ORJSONResponse will serialize efficiently.
     return ORJSONResponse(content=data)
 
 
@@ -136,6 +135,18 @@ def tasks_next(_: None = Depends(_auth_dep)) -> Any:
     nxt = ATTN.peek()
     return {"next": nxt[0] if nxt else None, "score": nxt[1] if nxt else None}
 
+@app.get("/config")
+def get_config(_: None = Depends(_auth_dep)) -> Any:
+    return {
+        "user_available": INT.user_available,
+        "allowlist": settings.allowlist(),
+        "soc_enabled": settings.SOC_ENABLED,
+    }
+
+@app.post("/config/user_available")
+def set_user_available(available: bool, _: None = Depends(_auth_dep)) -> Any:
+    INT.user_available = available
+    return {"ok": True, "user_available": INT.user_available}
 
 @app.get("/interrupts")
 def list_interrupts(_: None = Depends(_auth_dep)) -> Any:
@@ -151,7 +162,11 @@ def answer_interrupt(qid: str, text: str, _: None = Depends(_auth_dep)) -> Any:
 
 
 @app.post("/scrape")
-def scrape(question: str, seeds: List[str], _: None = Depends(_auth_dep)) -> Any:
+def scrape(question: str, seeds: List[str] | None = None, seeds_csv: str | None = None, _: None = Depends(_auth_dep)) -> Any:
+    if seeds is None:
+        seeds = []
+    if seeds_csv:
+        seeds.extend([s.strip() for s in seeds_csv.split(",") if s.strip()])
     plan = ScrapePlan(
         question=question,
         seeds=seeds,

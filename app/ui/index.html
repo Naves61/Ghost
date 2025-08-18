@@ -5,12 +5,23 @@
   <title>Ghost Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 24px; }
-    h1 { margin-bottom: 8px; }
-    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-    .card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; background:#fafafa; }
-    pre { white-space: pre-wrap; }
-    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    :root { --bg:#f7f7f8; --card:#fff; --muted:#666; --chip:#eef; --accent:#444; --border:#e5e7eb; }
+    body { background: var(--bg); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 24px; color:#111; }
+    h1 { margin-bottom: 16px; }
+    .grid { display: grid; grid-template-columns: 1.2fr 1fr 0.8fr; gap: 16px; align-items: start; }
+    .card { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: var(--card); box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+    .row { display: flex; gap: 12px; align-items: center; }
+    .tag { display:inline-block; padding: 2px 8px; border-radius: 999px; background: var(--chip); font-size: 12px; color:#223; margin-right:6px; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .thought { margin-bottom: 10px; }
+    .thought p { margin: 4px 0; }
+    label { font-size: 12px; color: var(--muted); }
+    input[type="text"], textarea { width: 100%; border:1px solid var(--border); border-radius:8px; padding:8px; font-size:14px; }
+    button { border:1px solid var(--border); border-radius:8px; padding:8px 12px; background:#111; color:#fff; cursor:pointer; }
+    button.secondary { background:#fff; color:#111; }
+    form { display: grid; gap: 8px; }
+    pre { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+    .two { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
   </style>
 </head>
 <body>
@@ -20,34 +31,127 @@
       <h3>Working Memory</h3>
       <div id="wm"></div>
     </div>
+
     <div class="card">
       <h3>Pending Interrupts</h3>
       <div id="ints"></div>
+      <hr/>
+      <h4>Answer Interrupt</h4>
+      <form id="answerForm">
+        <label>Interrupt ID</label>
+        <input id="qid" type="text" placeholder="q:..."/>
+        <label>Answer</label>
+        <textarea id="answer" rows="3" placeholder="Type your answer"></textarea>
+        <button type="submit">Submit Answer</button>
+      </form>
     </div>
+
     <div class="card">
       <h3>Next Task</h3>
       <pre id="task"></pre>
+      <hr/>
+      <h4>Availability & Scraping</h4>
+      <div class="two">
+        <form id="availForm">
+          <label>User Available?</label>
+          <select id="available">
+            <option value="true">Yes</option>
+            <option value="false">No (auto-escalate)</option>
+          </select>
+          <button type="submit" class="secondary">Set</button>
+        </form>
+        <form id="scrapeForm">
+          <label>Scrape: Question</label>
+          <input id="scrapeQ" type="text" placeholder="What to research"/>
+          <label>Seeds (comma-separated URLs)</label>
+          <input id="scrapeSeeds" type="text" placeholder="https://example.com, https://example.com/page"/>
+          <button type="submit">Run Scrape</button>
+        </form>
+      </div>
+      <div class="muted" id="cfg"></div>
     </div>
   </div>
+
   <script>
-    async function fetchJSON(url) {
-      const res = await fetch(url);
-      return res.json();
+    async function getJSON(url) { const r = await fetch(url); return r.json(); }
+    async function post(url, params) {
+      const form = new URLSearchParams(params);
+      const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: form});
+      return r.json();
     }
+
+    function fmtTime(ts) {
+      if (!ts) return '';
+      const d = new Date(ts*1000);
+      return d.toLocaleTimeString();
+    }
+
+    function renderWM(items) {
+      const el = document.getElementById('wm');
+      el.innerHTML = items.map(t => `
+        <div class="thought">
+          <span class="tag">${t.tags.join(", ")}</span>
+          <span class="muted">${fmtTime(t.ts)}</span>
+          <p>${t.content.replace(/^#(plan|question|insight)\s*/,'')}</p>
+        </div>
+      `).join("") || '<div class="muted">Empty</div>';
+    }
+
+    function renderInts(items) {
+      const el = document.getElementById('ints');
+      el.innerHTML = items.map(q => `
+        <div class="thought">
+          <b>${q.id}</b> <span class="muted">${fmtTime(q.created_ts)}</span>
+          <p><i>${q.rationale}</i></p>
+          <p>${q.question}</p>
+        </div>
+      `).join("") || '<div class="muted">None</div>';
+    }
+
     async function refresh() {
-      const wm = await fetchJSON('/wm');
-      const ints = await fetchJSON('/interrupts');
-      const task = await fetchJSON('/tasks/next');
-
-      const wmEl = document.getElementById('wm');
-      wmEl.innerHTML = wm.map(t => `<div><code>${t.tags.join(',')}</code> ${t.content}</div>`).join('');
-
-      const intsEl = document.getElementById('ints');
-      intsEl.innerHTML = ints.map(q => `<div><b>${q.id}</b>: ${q.question}</div>`).join('');
-
+      const [wm, ints, task, cfg] = await Promise.all([
+        getJSON('/wm'),
+        getJSON('/interrupts'),
+        getJSON('/tasks/next'),
+        getJSON('/config'),
+      ]);
+      renderWM(wm);
+      renderInts(ints);
       document.getElementById('task').textContent = JSON.stringify(task, null, 2);
+      document.getElementById('cfg').textContent = `Availability: ${cfg.user_available ? 'Yes' : 'No'} | Allowlist: ${cfg.allowlist.join(', ')}`;
+      document.getElementById('available').value = String(cfg.user_available);
     }
-    refresh(); setInterval(refresh, 3000);
+
+    // Forms
+    document.getElementById('answerForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const qid = document.getElementById('qid').value.trim();
+      const text = document.getElementById('answer').value.trim();
+      if (!qid || !text) return;
+      await post(`/interrupts/answer?qid=${encodeURIComponent(qid)}&text=${encodeURIComponent(text)}`, {});
+      document.getElementById('answer').value = '';
+      await refresh();
+    });
+
+    document.getElementById('availForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const available = document.getElementById('available').value === 'true';
+      await post(`/config/user_available?available=${available}`, {});
+      await refresh();
+    });
+
+    document.getElementById('scrapeForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const q = document.getElementById('scrapeQ').value.trim();
+      const seeds = document.getElementById('scrapeSeeds').value.trim();
+      if (!q || !seeds) return;
+      await post(`/scrape?question=${encodeURIComponent(q)}&seeds_csv=${encodeURIComponent(seeds)}`, {});
+      document.getElementById('scrapeQ').value = '';
+      document.getElementById('scrapeSeeds').value = '';
+      await refresh();
+    });
+
+    refresh(); setInterval(refresh, 4000);
   </script>
 </body>
 </html>

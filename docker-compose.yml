@@ -1,0 +1,20 @@
+version: "3.9"
+services:
+  ghost:
+    build: .
+    container_name: ghost
+    environment:
+      - GHOST_ENV=prod
+      - ENCRYPT_LTM=false
+      - SECRET_KEY=change_me_32_bytes_minimum____________
+      - ALLOWLIST_DOMAINS=example.com,localhost
+      - SOC_ENABLED=true
+      - SOC_CADENCE_SECONDS=5
+      - SOC_MAX_TOKENS=128
+      - DEV_DISABLE_AUTH=true
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    command: ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8000"]

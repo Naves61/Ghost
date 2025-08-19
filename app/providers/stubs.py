@@ -42,9 +42,9 @@ class StubLLM(LLMProvider):
         m = re.search(r"Stimuli:\s*(.+)", prompt, flags=re.DOTALL)
         stimuli = (m.group(1) if m else "").strip().splitlines()
         snippet = ""
-        for ln in stimuli[::-1]:
+        for ln in reversed(stimuli):
             ln = ln.strip()
-            if ln:
+            if ln and ":" in ln:
                 snippet = re.sub(r"^\w+:\s*", "", ln)  # drop "cli:" etc.
                 break
 

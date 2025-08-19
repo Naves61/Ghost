@@ -31,7 +31,12 @@ def ingest(text: str, source: str = "cli") -> None:
         }
     ]
     r = requests.post(f"{API}/stimuli", json=payload, timeout=10)
-    typer.echo(r.json())
+    data = r.json()
+    thought = data.get("thought", {}).get("content")
+    if thought:
+        typer.echo(f"Ghost: {thought}")
+    else:
+        typer.echo(json.dumps(data, indent=2))
 
 
 @app.command()

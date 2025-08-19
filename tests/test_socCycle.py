@@ -30,3 +30,5 @@ def test_soc_cycle_and_store_and_interrupt():
     assert isinstance(stored, bool)
     # if it's a question, we should get an interrupt id
     assert isinstance(inter, list)
+    # The generated thought should reference the stimulus content
+    assert "guideline" in thought.content.lower()

@@ -80,3 +80,12 @@ class AttentionScheduler:
         item = heapq.heappop(self.heap)
         tid = item.task_id
         return self.tasks.get(tid)
+
+    def top_k(self, k: int = 5) -> List[Tuple[Task, float]]:
+        self._refresh()
+        items: List[Tuple[Task, float]] = []
+        for tid, score in sorted(self.cache.items(), key=lambda x: x[1], reverse=True)[:k]:
+            task = self.tasks.get(tid)
+            if task:
+                items.append((task, score))
+        return items

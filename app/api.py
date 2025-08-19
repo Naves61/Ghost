@@ -108,8 +108,15 @@ async def ingest(stimuli: List[Dict[str, Any]], _: None = Depends(_auth_dep)) ->
         upsert_memory(mem)
     # Trigger one SoC step
     SOC_CYCLE_COUNTER.inc()
-    SOC.step([Stimulus(**s) for s in stimuli])
-    return {"ok": True}
+    thought, stored, interrupts = SOC.step([Stimulus(**s) for s in stimuli])
+    wm_view = [t.model_dump() for t in WM.view(5)]
+    return {
+        "ok": True,
+        "thought": thought.model_dump(),
+        "stored": stored,
+        "interrupts": interrupts,
+        "wm": wm_view,
+    }
 
 
 @app.get("/wm")

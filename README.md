@@ -114,6 +114,14 @@ CLI
     ghost export               # export LTM as JSONL
 ```
 
+To observe the Stream of Consciousness loop directly for debugging, run:
+
+```bash
+    SOC_CADENCE_SECONDS=0.1 SOC_JITTER_SECONDS=0 python -m app.soc
+```
+This prints each generated micro-thought as JSON to stdout. Lower cadences such as
+`0.05` are supported if your system can keep up.
+
 ### Configuration (via .env or env vars)
 
 | Key                       |         Default | Description                                      |

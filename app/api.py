@@ -176,7 +176,7 @@ def set_user_available(available: bool, _: None = Depends(_auth_dep)) -> Any:
 
 @app.post("/config/soc_cadence")
 def set_soc_cadence(seconds: float, _: None = Depends(_auth_dep)) -> Any:
-    settings.SOC_CADENCE_SECONDS = max(0.1, float(seconds))
+    settings.SOC_CADENCE_SECONDS = max(0.01, float(seconds))
     return {"ok": True, "soc_cadence": settings.SOC_CADENCE_SECONDS}
 
 @app.get("/interrupts")

@@ -139,10 +139,20 @@ async def run_soc_loop(engine: SoCEngine, get_stimuli_cb, stop_evt: asyncio.Even
     jitter = settings.SOC_JITTER_SECONDS
     while not stop_evt.is_set():
         stimuli = await get_stimuli_cb()
-        engine.step(stimuli)
+        thought, stored, interrupts = engine.step(stimuli)
+        print(
+            json.dumps(
+                {
+                    "event": "soc_thought",
+                    "thought": thought.model_dump(),
+                    "stored": stored,
+                    "interrupts": interrupts,
+                }
+            )
+        )
         cadence = settings.SOC_CADENCE_SECONDS
         sleep_s = cadence + random.uniform(-jitter, jitter)
-        await asyncio.wait_for(stop_evt.wait(), timeout=max(0.1, sleep_s))
+        await asyncio.wait_for(stop_evt.wait(), timeout=max(0.01, sleep_s))
 
 
 async def run_soc_main() -> None:
@@ -170,3 +180,7 @@ async def run_soc_main() -> None:
         await run_soc_loop(engine, _get_stimuli, stop_evt)
     except asyncio.TimeoutError:
         pass
+
+
+if __name__ == "__main__":
+    asyncio.run(run_soc_main())

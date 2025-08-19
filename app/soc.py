@@ -8,7 +8,14 @@ from typing import Dict, List, Optional, Tuple
 
 from .schema import Memory, Stimulus, Thought, now_ts
 from .settings import settings
-from .providers import LLMProvider, EmbeddingsProvider, Clock, StubLLM, StubEmbeddings, SystemClock
+from .providers import (
+    LLMProvider,
+    EmbeddingsProvider,
+    Clock,
+    StubEmbeddings,
+    SystemClock,
+    create_llm,
+)
 from .memory_working import WorkingMemory
 from .memory_longterm import upsert_memory, vector_search
 from .interrupts import InterruptManager
@@ -157,7 +164,7 @@ async def run_soc_loop(engine: SoCEngine, get_stimuli_cb, stop_evt: asyncio.Even
 
 async def run_soc_main() -> None:
     wm = WorkingMemory()
-    llm: LLMProvider = StubLLM()
+    llm: LLMProvider = create_llm()
     emb: EmbeddingsProvider = StubEmbeddings()
     clock: Clock = SystemClock()
     from .interrupts import InterruptManager

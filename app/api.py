@@ -15,7 +15,14 @@ from .schema import Stimulus
 from .settings import settings
 from .memory_working import WorkingMemory
 from .memory_longterm import keyword_search, vector_search, list_recent
-from .providers import StubLLM, StubEmbeddings, SystemClock, LLMProvider, EmbeddingsProvider, Clock
+from .providers import (
+    LLMProvider,
+    EmbeddingsProvider,
+    Clock,
+    StubEmbeddings,
+    SystemClock,
+    create_llm,
+)
 from .soc import SoCEngine, run_soc_loop
 from .attention import AttentionScheduler
 from .interrupts import InterruptManager
@@ -39,7 +46,7 @@ SOC_CYCLE_COUNTER = Counter("ghost_soc_cycles_total", "SoC cycles", registry=REG
 # Simple in-proc singletons
 WM = WorkingMemory()
 EMB: EmbeddingsProvider = StubEmbeddings()
-LLM: LLMProvider = StubLLM()
+LLM: LLMProvider = create_llm()
 CLOCK: Clock = SystemClock()
 INT = InterruptManager()
 ATTN = AttentionScheduler()

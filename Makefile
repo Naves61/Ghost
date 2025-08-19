@@ -39,7 +39,7 @@ soc:
 	python -c "from app.soc import run_soc_main; import asyncio; asyncio.run(run_soc_main())"
 
 up:
-	docker-compose up --build
+        docker compose up --build
 
 down:
-	docker-compose down
+        docker compose down

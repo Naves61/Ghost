@@ -3,6 +3,9 @@ PYTHON := python3
 POETRY := poetry
 PKG := ghost
 
+DOCKER := $(shell command -v docker 2>/dev/null)
+COMPOSE := $(if $(DOCKER),docker compose,docker-compose)
+
 .PHONY: venv install lint type test cov fmt up down api cli soc
 
 venv:
@@ -39,7 +42,7 @@ soc:
 	python -c "from app.soc import run_soc_main; import asyncio; asyncio.run(run_soc_main())"
 
 up:
-	docker-compose up --build
+	$(COMPOSE) up --build
 
 down:
-	docker-compose down
+	$(COMPOSE) down

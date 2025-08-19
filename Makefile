@@ -2,6 +2,7 @@ SHELL := /bin/bash
 PYTHON := python3
 POETRY := poetry
 PKG := ghost
+COMPOSE ?= docker compose
 
 .PHONY: venv install lint type test cov fmt up down api cli soc
 

@@ -68,6 +68,15 @@
           <button type="submit">Run Scrape</button>
         </form>
       </div>
+      <hr/>
+      <h4>Force Stimulus</h4>
+      <form id="stimForm">
+        <label>Source</label>
+        <input id="stimSource" type="text" placeholder="ui" value="ui"/>
+        <label>Content</label>
+        <textarea id="stimContent" rows="2" placeholder="Stimulus text"></textarea>
+        <button type="submit">Send Stimulus</button>
+      </form>
       <div class="muted" id="cfg"></div>
     </div>
   </div>
@@ -148,6 +157,20 @@
       await post(`/scrape?question=${encodeURIComponent(q)}&seeds_csv=${encodeURIComponent(seeds)}`, {});
       document.getElementById('scrapeQ').value = '';
       document.getElementById('scrapeSeeds').value = '';
+      await refresh();
+    });
+
+    document.getElementById('stimForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const source = document.getElementById('stimSource').value.trim() || 'ui';
+      const content = document.getElementById('stimContent').value.trim();
+      if (!content) return;
+      await fetch('/stimuli', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify([{source, content}]),
+      });
+      document.getElementById('stimContent').value = '';
       await refresh();
     });
 

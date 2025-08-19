@@ -28,8 +28,8 @@ class Settings(BaseSettings):
 
     # SoC
     SOC_ENABLED: bool = True
-    SOC_CADENCE_SECONDS: int = 10
-    SOC_JITTER_SECONDS: int = 2
+    SOC_CADENCE_SECONDS: float = 1.0
+    SOC_JITTER_SECONDS: float = 2.0
     SOC_MAX_TOKENS: int = 128
 
     # Attention weights

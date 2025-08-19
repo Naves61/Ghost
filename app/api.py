@@ -142,6 +142,11 @@ def ltm_recent(top_k: int = 5, _: None = Depends(_auth_dep)) -> Any:
     return [m.model_dump() for m in list_recent(top_k)]
 
 
+@app.get("/ltm/recent")
+def ltm_recent(top_k: int = 5, _: None = Depends(_auth_dep)) -> Any:
+    return [m.model_dump() for m in list_recent(top_k)]
+
+
 @app.get("/tasks/next")
 def tasks_next(_: None = Depends(_auth_dep)) -> Any:
     nxt = ATTN.peek()
@@ -170,8 +175,8 @@ def set_user_available(available: bool, _: None = Depends(_auth_dep)) -> Any:
 
 
 @app.post("/config/soc_cadence")
-def set_soc_cadence(seconds: int, _: None = Depends(_auth_dep)) -> Any:
-    settings.SOC_CADENCE_SECONDS = max(1, seconds)
+def set_soc_cadence(seconds: float, _: None = Depends(_auth_dep)) -> Any:
+    settings.SOC_CADENCE_SECONDS = max(0.1, float(seconds))
     return {"ok": True, "soc_cadence": settings.SOC_CADENCE_SECONDS}
 
 @app.get("/interrupts")
@@ -184,7 +189,35 @@ def answer_interrupt(qid: str, text: str, _: None = Depends(_auth_dep)) -> Any:
     ok = INT.answer(qid, text)
     if not ok:
         raise HTTPException(status_code=404, detail="Unknown interrupt")
-    return {"ok": True}
+
+    from .memory_longterm import upsert_memory
+    from .schema import Memory, now_ts
+
+    # treat answer as stimulus and store in LTM
+    stim = Stimulus(id=f"ans:{int(time.time() * 1000)}", source="user", content=text, metadata={"qid": qid},
+                    ts=now_ts())
+    mem = Memory(
+        id=f"mem:{int(time.time() * 1000)}",
+        type="episodic",
+        content=text,
+        embedding=EMB.embed([text])[0],
+        importance=0.4,
+        created_at=now_ts(),
+        last_access=now_ts(),
+        metadata={"source": "interrupt", "qid": qid},
+    )
+    upsert_memory(mem)
+
+    SOC_CYCLE_COUNTER.inc()
+    thought, stored, interrupts = SOC.step([stim])
+    wm_view = [t.model_dump() for t in WM.view(5)]
+    return {
+        "ok": True,
+        "thought": thought.model_dump(),
+        "stored": stored,
+        "interrupts": interrupts,
+        "wm": wm_view,
+    }
 
 
 @app.post("/scrape")

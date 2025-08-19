@@ -160,6 +160,14 @@ LLMProvider.generate(system: str, prompt: str, max_tokens: int, **kw) -> str
 EmbeddingsProvider.embed(texts: List[str]) -> List[List[float]]
 ```
 
+#### Local LLM via Ollama
+
+```
+scripts/dev_setup_local_llm.sh    # install & pull default model
+export PROVIDER_LLM=ollama        # enable provider
+python -m app.soc                 # run with local model
+```
+
 ### Security & Privacy
 
 Robots-aware scraping (urllib.robotparser).

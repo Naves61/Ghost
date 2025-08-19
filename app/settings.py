@@ -55,6 +55,16 @@ class Settings(BaseSettings):
     PROVIDER_EMBED: str = "stub"
     PROVIDER_CLOCK: str = "system"
 
+    # Local LLM configuration
+    LLM_MODEL: str | None = None
+    LLM_CTX: int = 8192
+    LLM_MAX_TOKENS: int = 512
+    LLM_TEMP: float = 0.7
+    LLM_TOP_P: float = 0.9
+    LLM_TOP_K: int = 40
+    LLM_SEED: int | None = None
+    LLAMACPP_SERVER_URL: str | None = None
+
     def allowlist(self) -> List[str]:
         s = self.ALLOWLIST_DOMAINS.strip()
         if s == "*":

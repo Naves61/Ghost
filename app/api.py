@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from .schema import Stimulus
 from .settings import settings
 from .memory_working import WorkingMemory
-from .memory_longterm import keyword_search, vector_search
+from .memory_longterm import keyword_search, vector_search, list_recent
 from .providers import StubLLM, StubEmbeddings, SystemClock, LLMProvider, EmbeddingsProvider, Clock
 from .soc import SoCEngine, run_soc_loop
 from .attention import AttentionScheduler
@@ -137,10 +137,22 @@ def ltm_search(q: str, top_k: int = 5, _: None = Depends(_auth_dep)) -> Any:
     }
 
 
+@app.get("/ltm/recent")
+def ltm_recent(top_k: int = 5, _: None = Depends(_auth_dep)) -> Any:
+    return [m.model_dump() for m in list_recent(top_k)]
+
+
 @app.get("/tasks/next")
 def tasks_next(_: None = Depends(_auth_dep)) -> Any:
     nxt = ATTN.peek()
     return {"next": nxt[0] if nxt else None, "score": nxt[1] if nxt else None}
+
+
+@app.get("/tasks/top")
+def tasks_top(k: int = 5, _: None = Depends(_auth_dep)) -> Any:
+    return [
+        {"task": t.model_dump(), "score": s} for t, s in ATTN.top_k(k)
+    ]
 
 @app.get("/config")
 def get_config(_: None = Depends(_auth_dep)) -> Any:
@@ -148,12 +160,19 @@ def get_config(_: None = Depends(_auth_dep)) -> Any:
         "user_available": INT.user_available,
         "allowlist": settings.allowlist(),
         "soc_enabled": settings.SOC_ENABLED,
+        "soc_cadence": settings.SOC_CADENCE_SECONDS,
     }
 
 @app.post("/config/user_available")
 def set_user_available(available: bool, _: None = Depends(_auth_dep)) -> Any:
     INT.user_available = available
     return {"ok": True, "user_available": INT.user_available}
+
+
+@app.post("/config/soc_cadence")
+def set_soc_cadence(seconds: int, _: None = Depends(_auth_dep)) -> Any:
+    settings.SOC_CADENCE_SECONDS = max(1, seconds)
+    return {"ok": True, "soc_cadence": settings.SOC_CADENCE_SECONDS}
 
 @app.get("/interrupts")
 def list_interrupts(_: None = Depends(_auth_dep)) -> Any:

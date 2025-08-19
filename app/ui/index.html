@@ -8,7 +8,7 @@
     :root { --bg:#f7f7f8; --card:#fff; --muted:#666; --chip:#eef; --accent:#444; --border:#e5e7eb; }
     body { background: var(--bg); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 24px; color:#111; }
     h1 { margin-bottom: 16px; }
-    .grid { display: grid; grid-template-columns: 1.2fr 1fr 0.8fr; gap: 16px; align-items: start; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; align-items: start; }
     .card { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: var(--card); box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
     .row { display: flex; gap: 12px; align-items: center; }
     .tag { display:inline-block; padding: 2px 8px; border-radius: 999px; background: var(--chip); font-size: 12px; color:#223; margin-right:6px; }
@@ -33,9 +33,16 @@
     </div>
 
     <div class="card">
-      <h3>Pending Interrupts</h3>
-      <div id="ints"></div>
+      <h3>Long-Term Memory</h3>
+      <div id="ltm"></div>
+    </div>
+
+    <div class="card">
+      <h3>Attention</h3>
+      <div id="attn"></div>
       <hr/>
+      <h4>Pending Interrupts</h4>
+      <div id="ints"></div>
       <h4>Answer Interrupt</h4>
       <form id="answerForm">
         <label>Interrupt ID</label>
@@ -44,13 +51,8 @@
         <textarea id="answer" rows="3" placeholder="Type your answer"></textarea>
         <button type="submit">Submit Answer</button>
       </form>
-    </div>
-
-    <div class="card">
-      <h3>Next Task</h3>
-      <pre id="task"></pre>
       <hr/>
-      <h4>Availability & Scraping</h4>
+      <h4>Controls</h4>
       <div class="two">
         <form id="availForm">
           <label>User Available?</label>
@@ -60,14 +62,19 @@
           </select>
           <button type="submit" class="secondary">Set</button>
         </form>
-        <form id="scrapeForm">
-          <label>Scrape: Question</label>
-          <input id="scrapeQ" type="text" placeholder="What to research"/>
-          <label>Seeds (comma-separated URLs)</label>
-          <input id="scrapeSeeds" type="text" placeholder="https://example.com, https://example.com/page"/>
-          <button type="submit">Run Scrape</button>
+        <form id="socForm">
+          <label>SoC Cadence (s)</label>
+          <input id="socCadence" type="number" min="1" step="1"/>
+          <button type="submit" class="secondary">Set</button>
         </form>
       </div>
+      <form id="scrapeForm">
+        <label>Scrape: Question</label>
+        <input id="scrapeQ" type="text" placeholder="What to research"/>
+        <label>Seeds (comma-separated URLs)</label>
+        <input id="scrapeSeeds" type="text" placeholder="https://example.com, https://example.com/page"/>
+        <button type="submit">Run Scrape</button>
+      </form>
       <hr/>
       <h4>Force Stimulus</h4>
       <form id="stimForm">
@@ -106,6 +113,16 @@
       `).join("") || '<div class="muted">Empty</div>';
     }
 
+    function renderLTM(items) {
+      const el = document.getElementById('ltm');
+      el.innerHTML = items.map(m => `
+        <div class="thought">
+          <span class="muted">${m.type}</span>
+          <p>${m.content}</p>
+        </div>
+      `).join("") || '<div class="muted">Empty</div>';
+    }
+
     function renderInts(items) {
       const el = document.getElementById('ints');
       el.innerHTML = items.map(q => `
@@ -117,18 +134,31 @@
       `).join("") || '<div class="muted">None</div>';
     }
 
+    function renderAttn(items) {
+      const el = document.getElementById('attn');
+      el.innerHTML = items.map(it => `
+        <div class="thought">
+          <b>${it.task.id}</b> <span class="muted">${it.score.toFixed(2)}</span>
+          <p>${it.task.title || ''}</p>
+        </div>
+      `).join("") || '<div class="muted">None</div>';
+    }
+
     async function refresh() {
-      const [wm, ints, task, cfg] = await Promise.all([
+      const [wm, ltm, ints, attn, cfg] = await Promise.all([
         getJSON('/wm'),
+        getJSON('/ltm/recent'),
         getJSON('/interrupts'),
-        getJSON('/tasks/next'),
+        getJSON('/tasks/top'),
         getJSON('/config'),
       ]);
       renderWM(wm);
+      renderLTM(ltm);
       renderInts(ints);
-      document.getElementById('task').textContent = JSON.stringify(task, null, 2);
-      document.getElementById('cfg').textContent = `Availability: ${cfg.user_available ? 'Yes' : 'No'} | Allowlist: ${cfg.allowlist.join(', ')}`;
+      renderAttn(attn);
+      document.getElementById('cfg').textContent = `Availability: ${cfg.user_available ? 'Yes' : 'No'} | SoC: ${cfg.soc_cadence}s | Allowlist: ${cfg.allowlist.join(', ')}`;
       document.getElementById('available').value = String(cfg.user_available);
+      document.getElementById('socCadence').value = cfg.soc_cadence;
     }
 
     // Forms
@@ -146,6 +176,14 @@
       e.preventDefault();
       const available = document.getElementById('available').value === 'true';
       await post(`/config/user_available?available=${available}`, {});
+      await refresh();
+    });
+
+    document.getElementById('socForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const seconds = parseInt(document.getElementById('socCadence').value, 10);
+      if (!seconds || seconds <= 0) return;
+      await post(`/config/soc_cadence?seconds=${seconds}`, {});
       await refresh();
     });
 

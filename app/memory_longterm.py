@@ -233,6 +233,36 @@ def import_jsonl(path: str) -> int:
     return n
 
 
+def list_recent(top_k: int = settings.TOPK_DEFAULT) -> List[Memory]:
+    con = _db()
+    try:
+        cur = con.execute(
+            "SELECT id,type,content,embedding,importance,created_at,last_access,metadata FROM memories ORDER BY created_at DESC LIMIT ?",
+            (top_k,),
+        )
+        rows = cur.fetchall()
+        items: List[Memory] = []
+        for row in rows:
+            emb = None
+            if row[3] is not None:
+                emb = list(np.frombuffer(row[3], dtype=np.float32))
+            items.append(
+                Memory(
+                    id=row[0],
+                    type=row[1],  # type: ignore
+                    content=_dec(row[2]).decode("utf-8"),
+                    embedding=emb,
+                    importance=row[4],
+                    created_at=row[5],
+                    last_access=row[6],
+                    metadata=json.loads(_dec(row[7]).decode("utf-8")),
+                )
+            )
+        return items
+    finally:
+        con.close()
+
+
 def consolidate_recent(
     max_items: int = 50, dedup_threshold: float = 0.95
 ) -> List[str]:

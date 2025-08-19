@@ -136,11 +136,11 @@ class SoCEngine:
 
 
 async def run_soc_loop(engine: SoCEngine, get_stimuli_cb, stop_evt: asyncio.Event) -> None:
-    cadence = settings.SOC_CADENCE_SECONDS
     jitter = settings.SOC_JITTER_SECONDS
     while not stop_evt.is_set():
         stimuli = await get_stimuli_cb()
         engine.step(stimuli)
+        cadence = settings.SOC_CADENCE_SECONDS
         sleep_s = cadence + random.uniform(-jitter, jitter)
         await asyncio.wait_for(stop_evt.wait(), timeout=max(0.1, sleep_s))
 

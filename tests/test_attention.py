@@ -35,3 +35,17 @@ def test_attention_scoring_and_heap():
     assert peek[0] in ("1", "2")
     nxt = attn.next_task()
     assert nxt is not None
+
+
+def test_attention_top_k():
+    attn = AttentionScheduler()
+    now = time.time()
+    t1 = make_task("1", 0.9, 0.3, now + 3600)
+    t2 = make_task("2", 0.4, 0.7, None)
+    t3 = make_task("3", 0.5, 0.5, None)
+    attn.add_or_update(t1, goal_fit=0.8)
+    attn.add_or_update(t2, goal_fit=0.2)
+    attn.add_or_update(t3, goal_fit=0.9)
+    top = attn.top_k(2)
+    assert len(top) == 2
+    assert top[0][1] >= top[1][1]

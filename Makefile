@@ -34,10 +34,10 @@ api:
 	uvicorn app.api:app --host 0.0.0.0 --port 8000 --reload
 
 cli:
-	python cli.py --help
+	$(PYTHON) cli.py --help
 
 soc:
-	python -c "from app.soc import run_soc_main; import asyncio; asyncio.run(run_soc_main())"
+	$(PYTHON) -c "from app.soc import run_soc_main; import asyncio; asyncio.run(run_soc_main())"
 
 up:
 	$(COMPOSE) up --build

@@ -15,7 +15,13 @@ from fastapi.staticfiles import StaticFiles
 from .schema import Stimulus, StimulusIn, Thought
 from .settings import settings
 from .memory_working import WorkingMemory
-from .memory_longterm import keyword_search, vector_search, list_recent
+from .memory_longterm import (
+    keyword_search,
+    vector_search,
+    list_recent,
+    delete_memory,
+    delete_all_memories,
+)
 from .providers import (
     LLMProvider,
     EmbeddingsProvider,
@@ -191,8 +197,9 @@ async def ingest(stimuli: list[StimulusIn], _: None = Depends(_auth_dep)) -> Any
 
 
 @app.get("/wm")
-def get_wm(_: None = Depends(_auth_dep)) -> Any:
-    return orjson_response([t.model_dump() for t in WM.view(20)])
+def get_wm(top_k: int = 20, _: None = Depends(_auth_dep)) -> Any:
+    k = max(1, int(top_k))
+    return orjson_response([t.model_dump() for t in WM.view(k)])
 
 
 @app.get("/ltm/search")
@@ -213,9 +220,18 @@ def ltm_recent(top_k: int = 5, _: None = Depends(_auth_dep)) -> Any:
     return [m.model_dump() for m in list_recent(top_k)]
 
 
-@app.get("/ltm/recent")
-def ltm_recent(top_k: int = 5, _: None = Depends(_auth_dep)) -> Any:
-    return [m.model_dump() for m in list_recent(top_k)]
+@app.post("/ltm/delete")
+def ltm_delete(id: str, _: None = Depends(_auth_dep)) -> Any:
+    ok = delete_memory(id)
+    return {"deleted": ok}
+
+
+@app.post("/ltm/delete_all")
+def ltm_delete_all(confirm: str, _: None = Depends(_auth_dep)) -> Any:
+    if confirm.lower() != "yes":
+        raise HTTPException(status_code=400, detail="Confirmation required")
+    n = delete_all_memories()
+    return {"deleted": n}
 
 
 @app.get("/tasks/next")

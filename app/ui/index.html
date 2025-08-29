@@ -29,17 +29,28 @@
   <div class="grid">
     <div class="card">
       <h3>Working Memory</h3>
+      <form id="wmCtrlForm">
+        <label>Show last N</label>
+        <input id="wmShow" type="number" min="1" value="20"/>
+      </form>
       <div id="wm"></div>
     </div>
 
     <div class="card">
       <h3>Long-Term Memory</h3>
+      <form id="ltmCtrlForm">
+        <label>Show last N</label>
+        <input id="ltmShow" type="number" min="1" value="100"/>
+        <div class="row">
+          <input id="ltmConfirm" type="text" placeholder="Type yes to confirm"/>
+          <button type="button" id="ltmDeleteAll" class="secondary">Erase All</button>
+        </div>
+      </form>
       <div id="ltm"></div>
     </div>
 
     <div class="card">
       <h3>Stream of Consciousness</h3>
-      <div id="soc"></div>
       <form id="socCtrlForm">
         <label>Show last N</label>
         <input id="socShow" type="number" min="1" value="10"/>
@@ -50,14 +61,11 @@
           <button type="submit" class="secondary">Run</button>
         </div>
       </form>
+      <div id="soc"></div>
     </div>
 
     <div class="card">
       <h3>Attention</h3>
-      <div id="attn"></div>
-      <hr/>
-      <h4>Pending Interrupts</h4>
-      <div id="ints"></div>
       <h4>Answer Interrupt</h4>
       <form id="answerForm">
         <label>Interrupt ID</label>
@@ -66,7 +74,6 @@
         <textarea id="answer" rows="3" placeholder="Type your answer"></textarea>
         <button type="submit">Submit Answer</button>
       </form>
-      <hr/>
       <h4>Controls</h4>
       <div class="two">
         <form id="availForm">
@@ -90,7 +97,6 @@
         <input id="scrapeSeeds" type="text" placeholder="https://example.com, https://example.com/page"/>
         <button type="submit">Run Scrape</button>
       </form>
-      <hr/>
       <h4>Force Stimulus</h4>
       <form id="stimForm">
         <label>Source</label>
@@ -100,6 +106,10 @@
         <button type="submit">Send Stimulus</button>
       </form>
       <div class="muted" id="cfg"></div>
+      <hr/>
+      <div id="attn"></div>
+      <h4>Pending Interrupts</h4>
+      <div id="ints"></div>
     </div>
   </div>
 
@@ -112,6 +122,8 @@
     }
 
     let socLimit = 10;
+    let wmLimit = 20;
+    let ltmLimit = 100;
     let socRunning = false;
 
     function fmtTime(ts) {
@@ -136,9 +148,17 @@
       el.innerHTML = items.map(m => `
         <div class="thought">
           <span class="muted">${m.type}</span>
+          <button data-id="${m.id}" class="ltmDel secondary">Delete</button>
           <p>${m.content}</p>
         </div>
       `).join("") || '<div class="muted">Empty</div>';
+      el.querySelectorAll('.ltmDel').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const id = e.target.getAttribute('data-id');
+          await post(`/ltm/delete?id=${encodeURIComponent(id)}`, {});
+          await refresh();
+        });
+      });
     }
 
     function renderInts(items) {
@@ -175,8 +195,8 @@
 
     async function refresh() {
       const [wm, ltm, ints, attn, cfg, soc] = await Promise.all([
-        getJSON('/wm'),
-        getJSON('/ltm/recent?top_k=100'),
+        getJSON(`/wm?top_k=${wmLimit}`),
+        getJSON(`/ltm/recent?top_k=${ltmLimit}`),
         getJSON('/interrupts'),
         getJSON('/tasks/top'),
         getJSON('/config'),
@@ -224,6 +244,26 @@
       const v = parseInt(e.target.value, 10);
       socLimit = v > 0 ? v : 10;
       refresh();
+    });
+
+    document.getElementById('wmShow').addEventListener('change', (e) => {
+      const v = parseInt(e.target.value, 10);
+      wmLimit = v > 0 ? v : 20;
+      refresh();
+    });
+
+    document.getElementById('ltmShow').addEventListener('change', (e) => {
+      const v = parseInt(e.target.value, 10);
+      ltmLimit = v > 0 ? v : 100;
+      refresh();
+    });
+
+    document.getElementById('ltmDeleteAll').addEventListener('click', async () => {
+      const confirm = document.getElementById('ltmConfirm').value.trim().toLowerCase();
+      if (confirm !== 'yes') return;
+      await post('/ltm/delete_all', {confirm});
+      document.getElementById('ltmConfirm').value = '';
+      await refresh();
     });
 
     document.getElementById('socCtrlForm').addEventListener('submit', async (e) => {

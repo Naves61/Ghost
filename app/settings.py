@@ -51,8 +51,8 @@ class Settings(BaseSettings):
     METRICS_PORT: int = 8000
 
     # Providers
-    PROVIDER_LLM: str = "stub"
-    PROVIDER_EMBED: str = "stub"
+    PROVIDER_LLM: str = "ollama"
+    PROVIDER_EMBED: str = "ollama"
     PROVIDER_CLOCK: str = "system"
 
     # Local LLM configuration
@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     LLM_TOP_P: float = 0.9
     LLM_TOP_K: int = 40
     LLM_SEED: int | None = None
-    LLAMACPP_SERVER_URL: str | None = None
+    LLAMACPP_SERVER_URL: str | None = "http://127.0.0.1:11434"
 
     def allowlist(self) -> List[str]:
         s = self.ALLOWLIST_DOMAINS.strip()

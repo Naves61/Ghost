@@ -138,11 +138,12 @@ class SoCEngine:
         if not stimuli:
             # Insufficient external input: log and request more from user
             print("[soc.py] step: WARNING insufficient stimuli; requesting more context from user")
-            rq = self.interrupts.create(
+            # Turned off interrupts because they are too many, maybe if possible to check for already present interrupts of the same nature then fine
+            """rq = self.interrupts.create(
                 question="Please provide more recent context or a question to focus on.",
                 rationale="Empty stimuli batch",
                 required_fields=[],
-            )
+            )"""
             print(f"[soc.py] step: interrupt created id={rq} (request more stimuli)")
         system, prompt = self._prompt(stimuli)
         gen = self.llm.generate(system=system, prompt=prompt, max_tokens=settings.SOC_MAX_TOKENS)

@@ -8,7 +8,7 @@ from app.settings import settings
 
 def _backend_available() -> bool:
     try:
-        httpx.get("http://127.0.0.1:11434/api/tags", timeout=1.0)
+        httpx.get(f"{settings.OLLAMA_URL.rstrip('/')}/api/tags", timeout=1.0)
         return True
     except Exception:
         url = settings.LLAMACPP_SERVER_URL or os.environ.get("LLAMACPP_SERVER_URL")

@@ -22,9 +22,11 @@ DEFAULT_MODELS = [
 
 class OllamaProvider(LLMProvider):
     def __init__(self) -> None:
-        self.base_url = "http://127.0.0.1:11434"
+        self.base_url = settings.OLLAMA_URL.rstrip("/")
         self.lcpp_url = settings.LLAMACPP_SERVER_URL
-        self.client = httpx.Client(timeout=httpx.Timeout(30.0, read=600.0))
+        self.client = httpx.Client(
+            timeout=httpx.Timeout(connect=5.0, read=600.0, write=30.0, pool=None)
+        )
         self.ctx = settings.LLM_CTX
         self.max_tokens = settings.LLM_MAX_TOKENS
         self.temp = settings.LLM_TEMP

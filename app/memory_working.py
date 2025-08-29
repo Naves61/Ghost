@@ -20,6 +20,7 @@ class WorkingMemory:
         """O(1) amortized append; trims to budget."""
         self._buf.append(thought)
         self._total_chars += len(thought.content)
+        print(f"[memory_working.py] add: thought.id={thought.id} tags={thought.tags} chars={len(thought.content)}")
         self.truncate_to_budget()
 
     def view(self, n: int = 10) -> List[Thought]:

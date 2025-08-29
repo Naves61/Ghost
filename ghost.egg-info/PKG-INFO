@@ -157,6 +157,14 @@ CLI
     ghost export               # export LTM as JSONL
 ```
 
+To observe the Stream of Consciousness loop directly for debugging, run:
+
+```bash
+    SOC_CADENCE_SECONDS=0.1 SOC_JITTER_SECONDS=0 python -m app.soc
+```
+This prints each generated micro-thought as JSON to stdout. Lower cadences such as
+`0.05` are supported if your system can keep up.
+
 ### Configuration (via .env or env vars)
 
 | Key                       |         Default | Description                                      |
@@ -193,6 +201,14 @@ You can add adapters for OpenAI, local models, etc. Implement:
 ```python
 LLMProvider.generate(system: str, prompt: str, max_tokens: int, **kw) -> str
 EmbeddingsProvider.embed(texts: List[str]) -> List[List[float]]
+```
+
+#### Local LLM via Ollama
+
+```
+scripts/dev_setup_local_llm.sh    # install & pull default model
+export PROVIDER_LLM=ollama        # enable provider
+python -m app.soc                 # run with local model
 ```
 
 ### Security & Privacy

@@ -4,6 +4,9 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
 
+class StimulusIn(BaseModel):
+    source: str = "api"
+    content: str
 
 class Stimulus(BaseModel):
     id: str

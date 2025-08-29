@@ -173,6 +173,9 @@ def vector_search(
         results: List[Tuple[Memory, float]] = []
         for row in rows:
             emb = np.frombuffer(row[3], dtype=np.float32)
+            # Skip mismatched dimensions (e.g., after changing providers)
+            if emb.shape != q.shape:
+                continue
             sim = float(np.dot(q, emb) / (qn * (np.linalg.norm(emb) + 1e-8)))
             mem = Memory(
                 id=row[0],

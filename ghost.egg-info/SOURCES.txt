@@ -20,6 +20,7 @@ tests/test_api_feedback.py
 tests/test_attention.py
 tests/test_interrupts.py
 tests/test_long_term_memory.py
+tests/test_provider_ollama.py
 tests/test_scraper.py
 tests/test_socCycle.py
 tests/test_working_memory.py

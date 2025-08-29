@@ -5,13 +5,14 @@ import json
 import os
 import time
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 import orjson
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, ORJSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .schema import Stimulus
+from .schema import Stimulus, StimulusIn
 from .settings import settings
 from .memory_working import WorkingMemory
 from .memory_longterm import keyword_search, vector_search, list_recent
@@ -19,9 +20,9 @@ from .providers import (
     LLMProvider,
     EmbeddingsProvider,
     Clock,
-    StubEmbeddings,
     SystemClock,
     create_llm,
+    create_embeddings,
 )
 from .soc import SoCEngine, run_soc_loop
 from .attention import AttentionScheduler
@@ -45,7 +46,7 @@ SOC_CYCLE_COUNTER = Counter("ghost_soc_cycles_total", "SoC cycles", registry=REG
 
 # Simple in-proc singletons
 WM = WorkingMemory()
-EMB: EmbeddingsProvider = StubEmbeddings()
+EMB: EmbeddingsProvider = create_embeddings()
 LLM: LLMProvider = create_llm()
 CLOCK: Clock = SystemClock()
 INT = InterruptManager()
@@ -54,9 +55,21 @@ SOC = SoCEngine(WM, EMB, LLM, CLOCK, INT, "Ghost v0.1: pragmatic assistant.")
 
 STOP_EVT = asyncio.Event()
 
+# Pending stimuli buffer for the background SoC loop
+PENDING_STIMULI: asyncio.Queue[Stimulus] = asyncio.Queue()
+
 
 async def _get_stimuli() -> List[Stimulus]:
-    return []
+    """Drain pending stimuli (non-blocking) for consumption by the SoC loop."""
+    items: List[Stimulus] = []
+    try:
+        while True:
+            items.append(PENDING_STIMULI.get_nowait())
+    except asyncio.QueueEmpty:
+        pass
+    if items:
+        print(f"[api.py] _get_stimuli: drained {len(items)} stimuli for SoC loop")
+    return items
 
 
 @app.on_event("startup")
@@ -65,6 +78,7 @@ async def _startup() -> None:
         # create stop event & background task
         app.state.soc_stop = asyncio.Event()
         app.state.soc_task = asyncio.create_task(run_soc_loop(SOC, _get_stimuli, app.state.soc_stop))
+        print("[api.py] startup: SoC background loop started (SOC_ENABLED=true)")
 
 @app.on_event("shutdown")
 async def _shutdown() -> None:
@@ -95,35 +109,78 @@ def index() -> Any:
 
 
 @app.post("/stimuli")
-async def ingest(stimuli: List[Dict[str, Any]], _: None = Depends(_auth_dep)) -> Any:
+async def ingest(stimuli: list[StimulusIn], _: None = Depends(_auth_dep)) -> Any:
+    payload = [s.model_dump() for s in stimuli]
+    print("[api.py] POST /stimuli payload:", json.dumps(payload, indent=2))
     INGEST_COUNTER.inc(len(stimuli))
     # For demo: convert into episodic LTM immediately (low importance)
     from .memory_longterm import upsert_memory
     from .schema import Memory, now_ts
+    try:
+        for s in payload:
+            mem = Memory(
+                id=f"stim:{int(time.time()*1000)}",
+                type="episodic",
+                content=str(s.get("content", "")),
+                embedding=EMB.embed([str(s.get("content",""))])[0],
+                importance=0.3,
+                created_at=now_ts(),
+                last_access=now_ts(),
+                metadata={"source": s.get("source", "api")},
+            )
+            upsert_memory(mem)
+            print(f"[api.py] /stimuli: upsert LTM episodic id={mem.id} chars={len(mem.content)} source={mem.metadata.get('source')}")
+    except Exception as e:
+        print("ERROR in upsert_memory:", repr(e))
+        raise HTTPException(status_code=500, detail=f"upsert_memory failed: {type(e).__name__}: {e}")
 
-    for s in stimuli:
-        mem = Memory(
-            id=f"stim:{int(time.time()*1000)}",
-            type="episodic",
-            content=str(s.get("content", "")),
-            embedding=EMB.embed([str(s.get("content",""))])[0],
-            importance=0.3,
-            created_at=now_ts(),
-            last_access=now_ts(),
-            metadata={"source": s.get("source", "api")},
+    # Build Stimulus objects with required fields
+    now = time.time()
+    soc_stimuli = [
+        Stimulus(
+            id=f"stim:{uuid4()}",
+            source=s["source"],
+            content=s["content"],
+            metadata={"source": s["source"]},
+            ts=now,
         )
-        upsert_memory(mem)
-    # Trigger one SoC step
+        for s in payload
+    ]
+
+    # sanity check to avoid the validation error
+    assert all(isinstance(x, Stimulus) for x in soc_stimuli), "SOC input must be Stimulus objects"
+
+    # If background SoC is running, enqueue and return to avoid double-processing.
+    if settings.SOC_ENABLED and getattr(app.state, "soc_task", None) is not None:
+        print("[api.py] /stimuli: enqueueing stimuli for background SoC loop")
+        for st in soc_stimuli:
+            try:
+                PENDING_STIMULI.put_nowait(st)
+                print(f"[api.py] /stimuli: enqueued id={st.id} content='{st.content[:80]}'")
+                print(f"[api.py] /stimuli: number of PENDING STIMULI = {PENDING_STIMULI.qsize()}")
+            except asyncio.QueueFull:
+                print("[api.py] /stimuli: WARNING queue full; dropping stimulus")
+                pass
+        wm_view = [t.model_dump() for t in WM.view(5)]
+        return {"ok": True, "queued": len(soc_stimuli), "wm": wm_view}
+
+    # Otherwise, run a synchronous SoC step and include the result
     SOC_CYCLE_COUNTER.inc()
-    thought, stored, interrupts = SOC.step([Stimulus(**s) for s in stimuli])
-    wm_view = [t.model_dump() for t in WM.view(5)]
-    return {
-        "ok": True,
-        "thought": thought.model_dump(),
-        "stored": stored,
-        "interrupts": interrupts,
-        "wm": wm_view,
-    }
+    try:
+        print("[api.py] /stimuli: SoC disabled -> running SOC.step() synchronously")
+        thought, stored, interrupts = SOC.step(soc_stimuli)
+        wm_view = [t.model_dump() for t in WM.view(5)]
+        print(f"[api.py] /stimuli: SOC.step -> thought.id={thought.id} tags={thought.tags} stored={stored} interrupts={len(interrupts)}")
+    except Exception as e:
+        print("ERROR in SOC.step/WM.view:", repr(e))
+        raise HTTPException(status_code=500, detail=f"SOC/WM failed: {type(e).__name__}: {e}")
+
+    try:
+        _get_stimuli()
+    except Exception as e:
+        print("ERROR in _get_stimuli:", repr(e))
+
+    return {"ok": True, "thought": thought.model_dump(), "stored": stored, "interrupts": interrupts, "wm": wm_view}
 
 
 @app.get("/wm")

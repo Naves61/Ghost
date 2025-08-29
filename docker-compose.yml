@@ -17,4 +17,4 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-    command: ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "debug"]

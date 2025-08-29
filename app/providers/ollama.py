@@ -137,6 +137,8 @@ class OllamaProvider(LLMProvider):
         stream: bool = kwargs.get("stream", False)
         stop: Optional[List[str]] = kwargs.get("stop")
 
+        print(f"[providers/ollama.py] generate: backend={self.backend} model={self.model} max_tokens={max_tokens} stream={stream}")
+
         if len(system) + len(prompt) > self.ctx - 512:
             logger.warning("Prompt length approaching context window")
 

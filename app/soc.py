@@ -12,9 +12,9 @@ from .providers import (
     LLMProvider,
     EmbeddingsProvider,
     Clock,
-    StubEmbeddings,
     SystemClock,
     create_llm,
+    create_embeddings,
 )
 from .memory_working import WorkingMemory
 from .memory_longterm import upsert_memory, vector_search
@@ -41,6 +41,7 @@ class SoCEngine:
     def _retrieve_ltm(self, query_text: str, top_k: int = 5) -> List[Memory]:
         qv = self.embed.embed([query_text])[0]
         hits = vector_search(qv, top_k=top_k)
+        print(f"[soc.py] _retrieve_ltm: query='{query_text[:60]}' top_k={top_k} -> {len(hits)} hits")
         return [m for m, _ in hits]
 
     def _wm_summary(self, k: int = 5) -> str:
@@ -63,6 +64,8 @@ class SoCEngine:
             f"Stimuli:\n{stim_text}\n"
             "Produce one helpful micro-thought."
         )
+        print("[soc.py] _prompt: built prompt with sections sizes:",
+              f"Stimuli={len(stimuli)} lines, WM_chars={len(wm_text)}, LTM_chars={len(ltm_text)}")
         return system, prompt
 
     def _store_decider(self, content: str) -> Dict[str, object]:
@@ -73,10 +76,13 @@ class SoCEngine:
             f"thought: {content}"
         )
         raw = self.llm.generate(system=system, prompt=prompt, max_tokens=96)
+        print(f"[soc.py] _store_decider: raw='{str(raw)[:120]}'")
         try:
             obj = json.loads(raw)
+            print(f"[soc.py] _store_decider: parsed -> {obj}")
             return obj  # type: ignore[return-value]
         except json.JSONDecodeError:
+            print("[soc.py] _store_decider: JSON parse failed; defaulting to no-store")
             return {"should_store": False, "importance": 0.3, "type": "episodic", "tags": ["auto"]}
 
     def _maybe_interrupt(self, text: str) -> Optional[str]:
@@ -88,8 +94,10 @@ class SoCEngine:
         return None
 
     def step(self, stimuli: List[Stimulus]) -> Tuple[Thought, bool, List[str]]:
+        print(f"[soc.py] step: received {len(stimuli)} stimuli -> {[s.content[:60] for s in stimuli]}")
         system, prompt = self._prompt(stimuli)
         gen = self.llm.generate(system=system, prompt=prompt, max_tokens=settings.SOC_MAX_TOKENS)
+        print(f"[soc.py] step: llm.generate -> '{str(gen)[:200]}'")
         tag = "#insight"
         for t in ("#plan", "#question", "#insight"):
             if gen.startswith(t):
@@ -104,6 +112,7 @@ class SoCEngine:
             ts=self.clock.now(),
         )
         self.wm.add(th)
+        print(f"[soc.py] step: WM.add -> thought.id={th.id} tags={th.tags} len={len(th.content)}")
 
         stored = False
         decide = self._store_decider(gen)
@@ -119,6 +128,7 @@ class SoCEngine:
                 metadata={"tags": decide.get("tags", [])},
             )
             upsert_memory(mem)
+            print(f"[soc.py] step: stored LTM id={mem.id} type={mem.type} imp={mem.importance}")
             stored = True
 
         interrupts: List[str] = []
@@ -126,6 +136,7 @@ class SoCEngine:
         if q:
             iq = self.interrupts.create(question=q, rationale="Missing external info", required_fields=[])
             interrupts.append(iq)
+            print(f"[soc.py] step: interrupt created id={iq} question='{q[:100]}'")
 
             # Auto-escalate to scraper if user unavailable AND the question contains URLs on the allowlist.
             if not self.interrupts.user_available:
@@ -146,6 +157,7 @@ async def run_soc_loop(engine: SoCEngine, get_stimuli_cb, stop_evt: asyncio.Even
     jitter = settings.SOC_JITTER_SECONDS
     while not stop_evt.is_set():
         stimuli = await get_stimuli_cb()
+        print(f"[soc.py] run_soc_loop: stepping with {len(stimuli)} stimuli")
         thought, stored, interrupts = engine.step(stimuli)
         print(
             json.dumps(
@@ -165,7 +177,7 @@ async def run_soc_loop(engine: SoCEngine, get_stimuli_cb, stop_evt: asyncio.Even
 async def run_soc_main() -> None:
     wm = WorkingMemory()
     llm: LLMProvider = create_llm()
-    emb: EmbeddingsProvider = StubEmbeddings()
+    emb: EmbeddingsProvider = create_embeddings()
     clock: Clock = SystemClock()
     from .interrupts import InterruptManager
 

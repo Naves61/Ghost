@@ -57,6 +57,7 @@ class Settings(BaseSettings):
 
     # Local LLM configuration
     LLM_MODEL: str | None = None
+    EMB_MODEL: str | None = None
     LLM_CTX: int = 8192
     LLM_MAX_TOKENS: int = 512
     LLM_TEMP: float = 0.7

@@ -198,19 +198,54 @@
       await refresh();
     });
 
-    document.getElementById('stimForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const source = document.getElementById('stimSource').value.trim() || 'ui';
-      const content = document.getElementById('stimContent').value.trim();
-      if (!content) return;
-      await fetch('/stimuli', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify([{source, content}]),
-      });
-      document.getElementById('stimContent').value = '';
-      await refresh();
-    });
+    // ---- Single-submit, duplicate-safe handler for stimForm ----
+    (function setupStimForm(){
+      const form = document.getElementById('stimForm');
+      const srcEl = document.getElementById('stimSource');
+      const cntEl = document.getElementById('stimContent');
+      const btn = form.querySelector('button[type="submit"]');
+
+      // If this script is evaluated twice, remove any previous handler
+      if (window.__stimSubmitHandler) {
+        form.removeEventListener('submit', window.__stimSubmitHandler);
+      }
+
+      const handler = async (e) => {
+        e.preventDefault();
+
+        // In-flight guard: block while a request is ongoing
+        if (form.dataset.submitting === '1') return;
+        form.dataset.submitting = '1';
+        if (btn) btn.disabled = true;
+
+        try {
+          const source = (srcEl.value || '').trim() || 'ui';
+          const content = (cntEl.value || '').trim();
+          if (!content) return;
+
+          const res = await fetch('/stimuli', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify([{ source, content }]),
+          });
+
+          if (!res.ok) {
+            console.error('POST /stimuli failed', res.status, await res.text());
+            return;
+          }
+
+          cntEl.value = '';
+          await refresh();
+        } finally {
+          form.dataset.submitting = '0';
+          if (btn) btn.disabled = false;
+        }
+      };
+
+      window.__stimSubmitHandler = handler;
+      form.addEventListener('submit', handler);
+    })();
+    // ------------------------------------------------------------
 
     refresh(); setInterval(refresh, 4000);
   </script>

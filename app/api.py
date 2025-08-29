@@ -12,7 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, ORJSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .schema import Stimulus, StimulusIn
+from .schema import Stimulus, StimulusIn, Thought
 from .settings import settings
 from .memory_working import WorkingMemory
 from .memory_longterm import keyword_search, vector_search, list_recent
@@ -58,6 +58,10 @@ STOP_EVT = asyncio.Event()
 # Pending stimuli buffer for the background SoC loop
 PENDING_STIMULI: asyncio.Queue[Stimulus] = asyncio.Queue()
 
+# Recent SoC thoughts (in-memory ring buffer)
+from collections import deque
+SOC_THOUGHTS: deque[Thought] = deque(maxlen=100)
+
 
 async def _get_stimuli() -> List[Stimulus]:
     """Drain pending stimuli (non-blocking) for consumption by the SoC loop."""
@@ -77,7 +81,9 @@ async def _startup() -> None:
     if settings.SOC_ENABLED:
         # create stop event & background task
         app.state.soc_stop = asyncio.Event()
-        app.state.soc_task = asyncio.create_task(run_soc_loop(SOC, _get_stimuli, app.state.soc_stop))
+        app.state.soc_task = asyncio.create_task(
+            run_soc_loop(SOC, _get_stimuli, app.state.soc_stop, lambda th: SOC_THOUGHTS.append(th))
+        )
         print("[api.py] startup: SoC background loop started (SOC_ENABLED=true)")
 
 @app.on_event("shutdown")
@@ -169,6 +175,7 @@ async def ingest(stimuli: list[StimulusIn], _: None = Depends(_auth_dep)) -> Any
     try:
         print("[api.py] /stimuli: SoC disabled -> running SOC.step() synchronously")
         thought, stored, interrupts = SOC.step(soc_stimuli)
+        SOC_THOUGHTS.append(thought)
         wm_view = [t.model_dump() for t in WM.view(5)]
         print(f"[api.py] /stimuli: SOC.step -> thought.id={thought.id} tags={thought.tags} stored={stored} interrupts={len(interrupts)}")
     except Exception as e:
@@ -225,11 +232,14 @@ def tasks_top(k: int = 5, _: None = Depends(_auth_dep)) -> Any:
 
 @app.get("/config")
 def get_config(_: None = Depends(_auth_dep)) -> Any:
+    task = getattr(app.state, "soc_task", None)
+    running = bool(task and not task.done())
     return {
         "user_available": INT.user_available,
         "allowlist": settings.allowlist(),
         "soc_enabled": settings.SOC_ENABLED,
         "soc_cadence": settings.SOC_CADENCE_SECONDS,
+        "soc_running": running,
     }
 
 @app.post("/config/user_available")
@@ -242,6 +252,57 @@ def set_user_available(available: bool, _: None = Depends(_auth_dep)) -> Any:
 def set_soc_cadence(seconds: float, _: None = Depends(_auth_dep)) -> Any:
     settings.SOC_CADENCE_SECONDS = max(0.01, float(seconds))
     return {"ok": True, "soc_cadence": settings.SOC_CADENCE_SECONDS}
+
+
+@app.get("/soc/recent")
+def soc_recent(k: int = 10, _: None = Depends(_auth_dep)) -> Any:
+    k = max(1, int(k))
+    items = list(SOC_THOUGHTS)[-k:]
+    return [t.model_dump() for t in items]
+
+
+@app.post("/soc/pause")
+async def soc_pause(_: None = Depends(_auth_dep)) -> Any:
+    task = getattr(app.state, "soc_task", None)
+    stop = getattr(app.state, "soc_stop", None)
+    if task and not task.done() and stop is not None:
+        stop.set()
+        try:
+            await task
+        except Exception:
+            pass
+    return {"ok": True, "running": False}
+
+
+@app.post("/soc/resume")
+async def soc_resume(_: None = Depends(_auth_dep)) -> Any:
+    task = getattr(app.state, "soc_task", None)
+    if task and not task.done():
+        return {"ok": True, "running": True}
+    app.state.soc_stop = asyncio.Event()
+    app.state.soc_task = asyncio.create_task(
+        run_soc_loop(SOC, _get_stimuli, app.state.soc_stop, lambda th: SOC_THOUGHTS.append(th))
+    )
+    return {"ok": True, "running": True}
+
+
+@app.post("/soc/run")
+async def soc_run(loops: int = 1, _: None = Depends(_auth_dep)) -> Any:
+    loops = max(1, int(loops))
+    results: list[dict[str, Any]] = []
+    for _ in range(loops):
+        stimuli = await _get_stimuli()
+        SOC_CYCLE_COUNTER.inc()
+        thought, stored, interrupts = SOC.step(stimuli)
+        SOC_THOUGHTS.append(thought)
+        results.append(
+            {
+                "thought": thought.model_dump(),
+                "stored": stored,
+                "interrupts": interrupts,
+            }
+        )
+    return {"ok": True, "runs": loops, "results": results}
 
 @app.get("/interrupts")
 def list_interrupts(_: None = Depends(_auth_dep)) -> Any:
@@ -274,6 +335,7 @@ def answer_interrupt(qid: str, text: str, _: None = Depends(_auth_dep)) -> Any:
 
     SOC_CYCLE_COUNTER.inc()
     thought, stored, interrupts = SOC.step([stim])
+    SOC_THOUGHTS.append(thought)
     wm_view = [t.model_dump() for t in WM.view(5)]
     return {
         "ok": True,

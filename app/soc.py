@@ -4,7 +4,7 @@ import asyncio
 import json
 import random
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Callable
 
 from .schema import Memory, Stimulus, Thought, now_ts
 from .settings import settings
@@ -202,13 +202,20 @@ class SoCEngine:
         return th, stored, interrupts
 
 
-async def run_soc_loop(engine: SoCEngine, get_stimuli_cb, stop_evt: asyncio.Event) -> None:
+async def run_soc_loop(
+    engine: SoCEngine,
+    get_stimuli_cb,
+    stop_evt: asyncio.Event,
+    on_thought: Optional[Callable[[Thought], None]] = None,
+) -> None:
     jitter = settings.SOC_JITTER_SECONDS
     while not stop_evt.is_set():
         try:
             stimuli = await get_stimuli_cb()
             print(f"[soc.py] run_soc_loop: stepping with {len(stimuli)} stimuli")
             thought, stored, interrupts = engine.step(stimuli)
+            if on_thought:
+                on_thought(thought)
             print(
                 json.dumps(
                     {

@@ -44,15 +44,53 @@ class SoCEngine:
         print(f"[soc.py] _retrieve_ltm: query='{query_text[:60]}' top_k={top_k} -> {len(hits)} hits")
         return [m for m, _ in hits]
 
-    def _wm_summary(self, k: int = 5) -> str:
-        last = self.wm.view(k)
-        return "\n".join([f"- {t.tags} {t.content[:80]}" for t in last])
+    def _wm_summary(self) -> str:
+        # Select WM items by decayed importance with a char budget tied to LLM context
+        # Heuristic: ~4 chars per token; allocate ~30% of context to WM
+        ctx_chars = int(settings.LLM_CTX * 4 * 0.30)
+        scored = self.wm.score_decay(now=self.clock.now())
+        scored.sort(key=lambda x: x[1], reverse=True)
+        out: list[str] = []
+        used = 0
+        for th, _score in scored:
+            line = f"- {th.tags} {th.content.strip()}"
+            if used + len(line) > ctx_chars:
+                break
+            out.append(line)
+            used += len(line)
+        return "\n".join(out)
 
     def _prompt(self, stimuli: List[Stimulus]) -> Tuple[str, str]:
-        stim_text = "\n".join([f"{s.source}: {s.content}" for s in stimuli[-5:]])
-        ltm_hits = self._retrieve_ltm(stim_text or "general", top_k=3)
-        ltm_text = "\n".join([f"{m.type}:{m.content[:120]}" for m in ltm_hits])
-        wm_text = self._wm_summary(5)
+        # Budget sections roughly by context: Stimuli 20%, WM 30%, LTM 50%
+        ctx_total = settings.LLM_CTX * 4
+        stim_budget = int(ctx_total * 0.20)
+        ltm_budget = int(ctx_total * 0.50)
+
+        # Select recent stimuli lines up to budget (prefer newest first)
+        stim_lines: list[str] = []
+        used = 0
+        for s in reversed(stimuli):
+            line = f"{s.source}: {s.content.strip()}"
+            if used + len(line) > stim_budget:
+                break
+            stim_lines.append(line)
+            used += len(line)
+        stim_lines.reverse()
+        stim_text = "\n".join(stim_lines)
+
+        # Retrieve LTM context and trim to budget
+        ltm_hits = self._retrieve_ltm(stim_text or "general", top_k=8)
+        ltm_accum: list[str] = []
+        used = 0
+        for m in ltm_hits:
+            seg = f"{m.type}:{m.content.strip()}"
+            if used + len(seg) > ltm_budget:
+                break
+            ltm_accum.append(seg)
+            used += len(seg)
+        ltm_text = "\n".join(ltm_accum)
+
+        wm_text = self._wm_summary()
         system = (
             "Internal SoC micro-thought generator. Output <= 60 words and begin with one tag "
             "#plan|#question|#insight."
@@ -64,8 +102,10 @@ class SoCEngine:
             f"Stimuli:\n{stim_text}\n"
             "Produce one helpful micro-thought."
         )
-        print("[soc.py] _prompt: built prompt with sections sizes:",
-              f"Stimuli={len(stimuli)} lines, WM_chars={len(wm_text)}, LTM_chars={len(ltm_text)}")
+        print(
+            "[soc.py] _prompt: built prompt sizes:",
+            f"Stimuli_lines={len(stim_lines)} WM_chars={len(wm_text)} LTM_chars={len(ltm_text)}",
+        )
         return system, prompt
 
     def _store_decider(self, content: str) -> Dict[str, object]:
@@ -95,6 +135,15 @@ class SoCEngine:
 
     def step(self, stimuli: List[Stimulus]) -> Tuple[Thought, bool, List[str]]:
         print(f"[soc.py] step: received {len(stimuli)} stimuli -> {[s.content[:60] for s in stimuli]}")
+        if not stimuli:
+            # Insufficient external input: log and request more from user
+            print("[soc.py] step: WARNING insufficient stimuli; requesting more context from user")
+            rq = self.interrupts.create(
+                question="Please provide more recent context or a question to focus on.",
+                rationale="Empty stimuli batch",
+                required_fields=[],
+            )
+            print(f"[soc.py] step: interrupt created id={rq} (request more stimuli)")
         system, prompt = self._prompt(stimuli)
         gen = self.llm.generate(system=system, prompt=prompt, max_tokens=settings.SOC_MAX_TOKENS)
         print(f"[soc.py] step: llm.generate -> '{str(gen)[:200]}'")
@@ -156,22 +205,32 @@ class SoCEngine:
 async def run_soc_loop(engine: SoCEngine, get_stimuli_cb, stop_evt: asyncio.Event) -> None:
     jitter = settings.SOC_JITTER_SECONDS
     while not stop_evt.is_set():
-        stimuli = await get_stimuli_cb()
-        print(f"[soc.py] run_soc_loop: stepping with {len(stimuli)} stimuli")
-        thought, stored, interrupts = engine.step(stimuli)
-        print(
-            json.dumps(
-                {
-                    "event": "soc_thought",
-                    "thought": thought.model_dump(),
-                    "stored": stored,
-                    "interrupts": interrupts,
-                }
+        try:
+            stimuli = await get_stimuli_cb()
+            print(f"[soc.py] run_soc_loop: stepping with {len(stimuli)} stimuli")
+            thought, stored, interrupts = engine.step(stimuli)
+            print(
+                json.dumps(
+                    {
+                        "event": "soc_thought",
+                        "thought": thought.model_dump(),
+                        "stored": stored,
+                        "interrupts": interrupts,
+                    }
+                )
             )
-        )
-        cadence = settings.SOC_CADENCE_SECONDS
-        sleep_s = cadence + random.uniform(-jitter, jitter)
-        await asyncio.wait_for(stop_evt.wait(), timeout=max(0.01, sleep_s))
+            cadence = settings.SOC_CADENCE_SECONDS
+            sleep_s = cadence + random.uniform(-jitter, jitter)
+            try:
+                await asyncio.wait_for(stop_evt.wait(), timeout=max(0.01, sleep_s))
+            except asyncio.TimeoutError:
+                continue
+        except Exception as e:
+            print(f"[soc.py] run_soc_loop: ERROR {type(e).__name__}: {e}")
+            try:
+                await asyncio.wait_for(stop_evt.wait(), timeout=0.5)
+            except asyncio.TimeoutError:
+                continue
 
 
 async def run_soc_main() -> None:
@@ -192,7 +251,13 @@ async def run_soc_main() -> None:
     )
 
     async def _get_stimuli() -> List[Stimulus]:
-        return []
+        # Try to reuse API's pending-stimuli source when running standalone (best-effort)
+        try:
+            from .api import _get_stimuli as api_get_stimuli  # type: ignore
+
+            return await api_get_stimuli()
+        except Exception:
+            return []
 
     stop_evt = asyncio.Event()
     try:

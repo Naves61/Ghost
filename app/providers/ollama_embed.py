@@ -22,8 +22,10 @@ DEFAULT_MODELS = [
 
 class OllamaEmbeddings(EmbeddingsProvider):
     def __init__(self) -> None:
-        self.base_url = "http://127.0.0.1:11434"
-        self.client = httpx.Client(timeout=httpx.Timeout(30.0, read=600.0))
+        self.base_url = settings.OLLAMA_URL.rstrip("/")
+        self.client = httpx.Client(
+            timeout=httpx.Timeout(connect=5.0, read=600.0, write=30.0, pool=None)
+        )
         self.model = settings.EMB_MODEL or self._select_model()
 
         if not self._ollama_available():

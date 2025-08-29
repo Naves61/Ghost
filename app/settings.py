@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     PROVIDER_CLOCK: str = "system"
 
     # Local LLM configuration
+    OLLAMA_URL: str = "http://127.0.0.1:11434"
     LLM_MODEL: str | None = None
     EMB_MODEL: str | None = None
     LLM_CTX: int = 8192

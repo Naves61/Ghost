@@ -8,7 +8,7 @@
     :root { --bg:#f7f7f8; --card:#fff; --muted:#666; --chip:#eef; --accent:#444; --border:#e5e7eb; }
     body { background: var(--bg); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 24px; color:#111; }
     h1 { margin-bottom: 16px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; align-items: start; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; align-items: start; }
     .card { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: var(--card); box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
     .row { display: flex; gap: 12px; align-items: center; }
     .tag { display:inline-block; padding: 2px 8px; border-radius: 999px; background: var(--chip); font-size: 12px; color:#223; margin-right:6px; }
@@ -35,6 +35,21 @@
     <div class="card">
       <h3>Long-Term Memory</h3>
       <div id="ltm"></div>
+    </div>
+
+    <div class="card">
+      <h3>Stream of Consciousness</h3>
+      <div id="soc"></div>
+      <form id="socCtrlForm">
+        <label>Show last N</label>
+        <input id="socShow" type="number" min="1" value="10"/>
+        <label>Run loops</label>
+        <input id="socLoops" type="number" min="1" value="1"/>
+        <div class="row">
+          <button type="button" id="socToggle">Pause</button>
+          <button type="submit" class="secondary">Run</button>
+        </div>
+      </form>
     </div>
 
     <div class="card">
@@ -96,6 +111,9 @@
       return r.json();
     }
 
+    let socLimit = 10;
+    let socRunning = false;
+
     function fmtTime(ts) {
       if (!ts) return '';
       const d = new Date(ts*1000);
@@ -144,21 +162,36 @@
       `).join("") || '<div class="muted">None</div>';
     }
 
+    function renderSOC(items) {
+      const el = document.getElementById('soc');
+      el.innerHTML = items.map(t => `
+        <div class="thought">
+          <span class="tag">${t.tags.join(", ")}</span>
+          <span class="muted">${fmtTime(t.ts)}</span>
+          <p>${t.content.replace(/^#(plan|question|insight)\s*/,'')}</p>
+        </div>
+      `).join("") || '<div class="muted">Empty</div>';
+    }
+
     async function refresh() {
-      const [wm, ltm, ints, attn, cfg] = await Promise.all([
+      const [wm, ltm, ints, attn, cfg, soc] = await Promise.all([
         getJSON('/wm'),
-        getJSON('/ltm/recent'),
+        getJSON('/ltm/recent?top_k=100'),
         getJSON('/interrupts'),
         getJSON('/tasks/top'),
         getJSON('/config'),
+        getJSON(`/soc/recent?k=${socLimit}`),
       ]);
       renderWM(wm);
       renderLTM(ltm);
       renderInts(ints);
       renderAttn(attn);
+      renderSOC(soc);
       document.getElementById('cfg').textContent = `Availability: ${cfg.user_available ? 'Yes' : 'No'} | SoC: ${cfg.soc_cadence}s | Allowlist: ${cfg.allowlist.join(', ')}`;
       document.getElementById('available').value = String(cfg.user_available);
       document.getElementById('socCadence').value = cfg.soc_cadence;
+      socRunning = cfg.soc_running;
+      document.getElementById('socToggle').textContent = socRunning ? 'Pause' : 'Resume';
     }
 
     // Forms
@@ -184,6 +217,28 @@
       const seconds = parseInt(document.getElementById('socCadence').value, 10);
       if (!seconds || seconds <= 0) return;
       await post(`/config/soc_cadence?seconds=${seconds}`, {});
+      await refresh();
+    });
+
+    document.getElementById('socShow').addEventListener('change', (e) => {
+      const v = parseInt(e.target.value, 10);
+      socLimit = v > 0 ? v : 10;
+      refresh();
+    });
+
+    document.getElementById('socCtrlForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const loops = parseInt(document.getElementById('socLoops').value, 10) || 1;
+      await post(`/soc/run?loops=${loops}`, {});
+      await refresh();
+    });
+
+    document.getElementById('socToggle').addEventListener('click', async () => {
+      if (socRunning) {
+        await post('/soc/pause', {});
+      } else {
+        await post('/soc/resume', {});
+      }
       await refresh();
     });
 

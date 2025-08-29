@@ -124,6 +124,26 @@ def get_memory(mem_id: str) -> Optional[Memory]:
         con.close()
 
 
+def delete_memory(mem_id: str) -> bool:
+    con = _db()
+    try:
+        cur = con.execute("DELETE FROM memories WHERE id=?", (mem_id,))
+        con.commit()
+        return cur.rowcount > 0
+    finally:
+        con.close()
+
+
+def delete_all_memories() -> int:
+    con = _db()
+    try:
+        cur = con.execute("DELETE FROM memories")
+        con.commit()
+        return cur.rowcount
+    finally:
+        con.close()
+
+
 def keyword_search(query: str, top_k: int = settings.TOPK_DEFAULT) -> List[Memory]:
     con = _db()
     try:

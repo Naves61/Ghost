@@ -143,8 +143,8 @@ class SoCEngine:
                 question="Please provide more recent context or a question to focus on.",
                 rationale="Empty stimuli batch",
                 required_fields=[],
-            )"""
-            print(f"[soc.py] step: interrupt created id={rq} (request more stimuli)")
+            )
+            print(f"[soc.py] step: interrupt created id={rq} (request more stimuli)")"""
         system, prompt = self._prompt(stimuli)
         gen = self.llm.generate(system=system, prompt=prompt, max_tokens=settings.SOC_MAX_TOKENS)
         print(f"[soc.py] step: llm.generate -> '{str(gen)[:200]}'")
